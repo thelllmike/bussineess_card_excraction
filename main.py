@@ -13,17 +13,12 @@ logger = logging.getLogger(__name__)
 # Load environment variable for OpenAI API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
-app = FastAPI(
-    title="Business Card Text Extraction API",
-    docs_url="/api/business_card_text_extraction/docs",
-    redoc_url="/api/business_card_text_extraction/redoc",
-    openapi_url="/api/business_card_text_extraction/openapi.json",
-)
+app = FastAPI()
 
 # Configure CORS (update for production to restrict origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # FIXME: Set specific origins in production for better security
+    allow_origins=["*"],  # For development; restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,7 +29,7 @@ async def read_root():
     """Root endpoint for basic API info."""
     return {"message": "Welcome to the Business Card Text Extraction API"}
 
-@app.post("/api/business_card_text_extraction/extract_text")
+@app.post("/extract_text")
 async def extract_text(image: UploadFile = File(...)):
     """
     Extract text from an uploaded image file using OCR and restructure it to JSON format.

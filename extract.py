@@ -1,46 +1,68 @@
 import re
 import spacy
 from paddleocr import PaddleOCR
+from geotext import GeoText
 
 # Load the spaCy model for Named Entity Recognition
 nlp = spacy.load("en_core_web_sm")
 
-# Function to extract email addresses
+# -----------------------------------------------------------------------------
+# 1. Function to extract email addresses
+# -----------------------------------------------------------------------------
 def extract_email_ner(text):
+    """
+    Extracts email addresses using regex.
+    """
     email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
     email_matches = re.findall(email_pattern, text)
-    return list(set(email_matches))
+    return list(set(email_matches))  # Return unique matches
 
-# Function to extract phone numbers with refined patterns
+# -----------------------------------------------------------------------------
+# 2. Function to extract phone numbers with refined patterns
+# -----------------------------------------------------------------------------
 def extract_phone_numbers_ner(text):
-    # Updated regex pattern to capture:
-    # 1. International numbers with + and area codes
-    # 2. Numbers starting with 'n' or '0' and followed by 10 digits
-    # 3. Multiple numbers separated by '/' (e.g., '0720953165/0733577492')
-    phone_pattern = r'(\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{3,4}[-.\s]?\d{4,5}|\bn?\d{10}\b|\b0\d{9}\b(?:\/\d{10})?)'
+    """
+    Extracts phone numbers with patterns to handle:
+      - International numbers with + and area codes
+      - Numbers starting with 'n' or '0' and followed by 10 digits
+      - Multiple numbers separated by '/' (e.g., '0720953165/0733577492')
+    Also includes basic context-based filtering.
+    """
+    phone_pattern = (
+        r'(\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{3,4}[-.\s]?\d{4,5}'
+        r'|\bn?\d{10}\b|\b0\d{9}\b(?:/\d{10})?)'
+    )
     phone_matches = re.findall(phone_pattern, text)
 
-    # Context-based filtering to prioritize valid phone numbers
     valid_phone_numbers = []
     for match in phone_matches:
-        # Add numbers with or without keywords like 'Tel', 'Mobile', etc., if they meet length criteria
         if len(match) >= 7:
-            # Check if the number is near relevant keywords for prioritization
+            # Check for "Tel", "Mobile", etc. or if number starts with +, n, 0
             context_match = re.search(r'\b(Tel|Mobile|Phone|Contact|Cell)\b', text, re.IGNORECASE)
             if context_match or match.startswith(('+', 'n', '0')):
                 valid_phone_numbers.append(match)
-    
+
     return list(set(valid_phone_numbers))  # Deduplicate results
 
-
-# Function to extract website URLs
+# -----------------------------------------------------------------------------
+# 3. Function to extract website URLs
+# -----------------------------------------------------------------------------
 def extract_website_ner(text):
+    """
+    Extracts website URLs via regex pattern.
+    """
     website_pattern = r'(https?://[^\s]+|www\.[^\s]+)'
     website_matches = re.findall(website_pattern, text)
     return list(set(website_matches))
 
-# Function to extract agent and company names using NER with context filtering
+# -----------------------------------------------------------------------------
+# 4. Function to extract agent and company names using NER with context filtering
+# -----------------------------------------------------------------------------
 def extract_entities_with_ner(text):
+    """
+    Uses spaCy Named Entity Recognition (NER) to extract 'PERSON' and 'ORG' entities.
+    Returns a tuple (agent_name, company_name).
+    """
     doc = nlp(text)
     names = []
     organizations = []
@@ -51,19 +73,21 @@ def extract_entities_with_ner(text):
         elif ent.label_ == "ORG":
             organizations.append(ent.text)
     
-    # Assuming the first name detected as "PERSON" is the agent
+    # Assume the first PERSON is the agent name
     agent_name = names[0] if names else None
-    
-    # Prioritize organizations with common company terms like "Division", "Office", "Ltd"
-    company_name = None
-    for org in organizations:
-        if any(term in text for term in ["Division", "Office", "Ltd", "Corporation", "Inc", "Group", "Co"]):
-            company_name = org
-            break
+    # Assume the first ORG is the company name
+    company_name = organizations[0] if organizations else None
+
     return agent_name, company_name
 
-# Function to extract social media handles using regex
+# -----------------------------------------------------------------------------
+# 5. Function to extract social media handles using regex (optional)
+# -----------------------------------------------------------------------------
 def extract_social_media_ner(text):
+    """
+    Extracts basic references to Facebook, Instagram, and Twitter from text via regex.
+    Returns a dictionary with any matched snippet or None if not found.
+    """
     social_media = {
         "facebook": None,
         "instagram": None,
@@ -84,27 +108,45 @@ def extract_social_media_ner(text):
 
     return social_media
 
-# Enhanced function to extract addresses
+# -----------------------------------------------------------------------------
+# 6. Enhanced function to extract addresses
+# -----------------------------------------------------------------------------
 def extract_address_ner(text):
-    # Refined regex pattern to capture address formats with terms like "Street", "Avenue", etc.
+    """
+    Extract potential address formats that contain typical address keywords 
+    like 'Street', 'Avenue', 'Building', etc. Also uses spaCy NER to catch
+    GPE/LOC/FAC as fallback for location phrases.
+    """
     address_pattern = (
-        r'((?:\d{1,5}\s)?(?:[A-Za-z\s]+(?:Square|Building|Tower|Floor|Block|Avenue|St|Street|Rd|Road|Lane|Ln|Drive|Dr|Boulevard|Blvd|Place|Pl)[,.\s]*)+'
-        r'(?:,\s*\w+)*,\s*\w+\s*\d{0,6}|\bP\.O\.\sBox\s\d+\b)'
+        r'((?:\d{1,5}\s)?'
+        r'(?:[A-Za-z\s]+(?:Square|Building|Tower|Floor|Block|Avenue|St|Street|'
+        r'Rd|Road|Lane|Ln|Drive|Dr|Boulevard|Blvd|Place|Pl)[,.\s]*)+'
+        r'(?:,\s*\w+)*'
+        r',\s*\w+\s*\d{0,6}'
+        r'|\bP\.O\.\sBox\s\d+\b)'
     )
     address_matches = re.findall(address_pattern, text, re.IGNORECASE | re.MULTILINE)
 
-    # spaCy NER for fallback location-based entities
+    # Use spaCy to capture additional location-based entities
     doc = nlp(text)
     additional_addresses = [ent.text for ent in doc.ents if ent.label_ in {"GPE", "LOC", "FAC"}]
 
-    # Combine regex and NER results to capture complete address
+    # Combine regex and NER results
     addresses = list(set(address_matches + additional_addresses))
-    # Filter out known country names if they appear at the end
+
+    # Filter out known country names if they appear as isolated addresses 
+    # (Modify this set to match your usage.)
     final_address = [addr for addr in addresses if addr.lower() not in {"kenya", "uganda", "tanzania"}]
+    
     return ", ".join(final_address) if final_address else None
 
-# OCR function to extract text from an image
+# -----------------------------------------------------------------------------
+# 7. OCR function to extract text from an image
+# -----------------------------------------------------------------------------
 def extract_text_from_image(image_bytes):
+    """
+    Uses PaddleOCR to extract text from an image given as bytes.
+    """
     ocr = PaddleOCR()
     result = ocr.ocr(image_bytes, cls=True)
     extracted_text = ""
@@ -115,26 +157,65 @@ def extract_text_from_image(image_bytes):
     
     return extracted_text.strip()
 
-# Function to restructure extracted text into JSON format
+# -----------------------------------------------------------------------------
+# 8. Final function to restructure extracted text into the requested JSON format
+#    using GeoText to detect city and country.
+# -----------------------------------------------------------------------------
 def restructure_extracted_text_to_json(extracted_text):
-    """Restructure extracted text into JSON format for easy access to fields."""
-    email = extract_email_ner(extracted_text)
+    """
+    Restructure extracted text into a JSON/dictionary with specific fields:
+      - organization_name
+      - primary_phone_number
+      - other_phone_number
+      - email
+      - industry
+      - city
+      - country
+      - website
+    """
+    # 1. Extract data using the helper functions
+    emails = extract_email_ner(extracted_text)
     phone_numbers = extract_phone_numbers_ner(extracted_text)
-    website = extract_website_ner(extracted_text)
-    social_media = extract_social_media_ner(extracted_text)
+    websites = extract_website_ner(extracted_text)
     agent_name, company_name = extract_entities_with_ner(extracted_text)
     address = extract_address_ner(extracted_text)
 
+    # 2. Detect city/country using GeoText
+    places = GeoText(extracted_text)
+    # The library returns sets, but let's just pick the first city/country if available.
+    # If there are multiple, you can decide how to handle them (e.g., store them in a list).
+    city = list(places.cities)[0] if places.cities else None
+    country = list(places.countries)[0] if places.countries else None
+
+    # 3. Naive placeholder for industry
+    industry = None
+
+    # 4. Build and return the final dictionary
     return {
-        "email": email[0] if email else None,
-        "phone_numbers": phone_numbers[:2],  # Limit to only the first two phone numbers
-        "agent_name": agent_name,
-        "company_name": company_name,
-        "address": address,
-        "web_presence": {
-            "website": website[0] if website else None,
-            "facebook": social_media["facebook"],
-            "instagram": social_media["instagram"],
-            "twitter": social_media["twitter"]
-        }
+        "organization_name": company_name,
+        "primary_phone_number": phone_numbers[0] if phone_numbers else None,
+        "other_phone_number": phone_numbers[1] if len(phone_numbers) > 1 else None,
+        "email": emails[0] if emails else None,
+        "industry": industry,
+        "city": city,
+        "country": country,
+        "website": websites[0] if websites else None
     }
+
+# -----------------------------------------------------------------------------
+# Usage Example (for reference):
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    sample_text = """
+        ABC Corporation Ltd
+        Tel: +1 234 567 8900
+        Cell: 0720953165
+        Email: info@abccorp.com
+        Website: www.abccorp.com
+        1234 Some Avenue, Nairobi, Kenya
+        Then we traveled to Mombasa in Kenya. 
+    """
+    
+    # Extract data from the sample text
+    structured_data = restructure_extracted_text_to_json(sample_text)
+    print(structured_data)
