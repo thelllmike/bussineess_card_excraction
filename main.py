@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from extract import extract_text_from_image, restructure_extracted_text_to_json
 from database import Base, engine
 from routers.prospect_router import router as prospect_router
+from routers.user_router import router as user_router
 from models.prospect_model import Base
+from models.user_model import Base
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +35,7 @@ def startup_event():
     Base.metadata.create_all(bind=engine)
 
 app.include_router(prospect_router)
+app.include_router(user_router)
 
 @app.get("/")
 async def read_root():
